@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-prod:
+  deploy:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     env:
       APP_NAME: ${{ vars.APP_NAME }}
       DOCKER_USER: ${{ vars.DOCKER_USER }}
