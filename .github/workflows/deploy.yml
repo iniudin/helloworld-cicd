@@ -1,0 +1,26 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: ${{ vars.APP_NAME }}
+      DOCKER_USER: ${{ vars.DOCKER_USER }}
+      DOMAIN: ${{ vars.DOMAIN }}
+    steps:
+      - name: Deploy to production VPS
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_VPS_HOST }}
+          username: ${{ secrets.DEPLOY_VPS_USER }}
+          key: ${{ secrets.DEPLOY_VPS_SSH_KEY }}
+          script: |
+            docker pull ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
+            docker stop ${{ env.APP_NAME }} || true
+            docker rm ${{ env.APP_NAME }} || true
+            docker run -d --name ${{ env.APP_NAME }} -p 8080:8080 \
+              -e VIRTUAL_HOST=${{ env.DOMAIN }} \
+              ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
