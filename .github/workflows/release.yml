@@ -1,0 +1,15 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Push Docker image
+        run: docker push ${{ vars.DOCKER_USER }}/${{ vars.APP_NAME }}:${GITHUB_SHA}
