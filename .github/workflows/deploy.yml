@@ -1,16 +1,23 @@
-name: CI/CD Build (Auto) + Deploy (Manual)
+name: CI/CD Build & Deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image Tag to Deploy (e.g., latest)"
+        required: true
+        default: "latest"
 
 jobs:
   build:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+
     outputs:
-      image: ${{ steps.build.outputs.image }}
+      image_full_tag: ${{ steps.build_push.outputs.image }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,41 +31,51 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Generate Image Tag
+        id: tag_gen
+        run: echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_OUTPUT
+
       - name: Build and push image
-        id: build
+        id: build_push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ steps.tag_gen.outputs.IMAGE_TAG }}
           outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
 
-      - name: Output image name
-        env:
-          BUILT_IMAGE: ${{ steps.build.outputs.image }}
+      - name: Output Image Tag
         run: |
-          echo "Image berhasil dibuild & di-push:"
-          echo "$BUILT_IMAGE"
+          echo "Image berhasil dibuild & di-push dengan tag:"
+          echo "${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest"
+          echo "${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ steps.tag_gen.outputs.IMAGE_TAG }}"
 
   deploy:
-    needs: build
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+
+    env:
+      IMAGE_TO_DEPLOY: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ github.event.inputs.image_tag }}
+      CONTAINER: helloworld-cicd
+
     steps:
+      - name: Check Image Tag Input
+        run: |
+          echo "Deploying image: $IMAGE_TO_DEPLOY"
+          echo "Deploying container: $CONTAINER"
+
       - name: Deploy to VPS (Pure Docker Run – No Compose)
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
-          CONTAINER: helloworld-cicd
         with:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: IMAGE,CONTAINER
           script: |
-            echo "Pulling latest image..."
-            docker pull $IMAGE
+            echo "Pulling image $IMAGE_TO_DEPLOY..."
+            docker pull $IMAGE_TO_DEPLOY
 
             echo "Removing old container (if any)..."
             docker stop $CONTAINER || true
@@ -70,12 +87,12 @@ jobs:
               --restart unless-stopped \
               --network caddy_net \
               -e NODE_ENV=production \
-              $IMAGE
-
+              $IMAGE_TO_DEPLOY
+              
             echo "Cleaning up old images..."
-            docker image prune -f
+            docker image prune -f 
 
             echo ""
-            echo "DEPLOYMENT SUCCESSFUL!"
+            echo "✅ DEPLOYMENT SUCCESSFUL!"
             echo "Container: $CONTAINER"
             docker ps -f name=$CONTAINER
