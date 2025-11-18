@@ -1,22 +1,34 @@
-
-FROM golang:1.21-alpine AS builder
-
+# Gunakan Bun resmi
+FROM oven/bun:1 AS base
 WORKDIR /app
 
-COPY backend/go.mod backend/go.sum ./
+# Install dependencies (dengan cache)
+FROM base AS deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
-RUN go mod download
+# Production dependencies only
+FROM base AS prod-deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
 
-COPY backend/ .
+# Build aplikasi
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NODE_ENV=production
+RUN bun run build
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o server main.go
-
-FROM alpine:3.18
-
+# Final image
+FROM oven/bun:1 AS release
 WORKDIR /app
 
-COPY --from=builder /app/server .
+# Copy hanya yang dibutuhkan dari .output
+COPY --from=builder /app/.output ./.output
 
-EXPOSE 8080
+EXPOSE 3000
+ENV PORT=3000
+ENV HOST=0.0.0.0
 
-CMD ["./server"]
+USER bun
+ENTRYPOINT ["bun", "run", ".output/server/index.mjs"]

@@ -1,0 +1,14 @@
+services:
+  app:
+    image: ${DOCKER_IMAGE}
+    container_name: helloworld-cicd
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+    networks:
+      - caddy_net
+
+networks:
+  caddy_net:
+    external: true
