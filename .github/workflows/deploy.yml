@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: CI/CD Build (Auto) + Deploy (Manual)
 
 on:
   push:
@@ -6,9 +6,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-
+    outputs:
+      image: ${{ steps.build.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,37 +18,64 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push
+      - name: Build and push image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
+          outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
 
-      - name: Deploy to VPS
-        if: github.event_name == 'workflow_dispatch'
+      - name: Output image name
+        env:
+          BUILT_IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          echo "Image berhasil dibuild & di-push:"
+          echo "$BUILT_IMAGE"
+
+  deploy:
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS (Pure Docker Run – No Compose)
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:latest
+          CONTAINER: helloworld-cicd
         with:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          envs: DOCKER_IMAGE
+          envs: IMAGE,CONTAINER
           script: |
-            cd /home/${{ secrets.VPS_USERNAME }}/helloworld-cicd
+            echo "Pulling latest image..."
+            docker pull $IMAGE
 
-            echo "DOCKER_IMAGE=$DOCKER_IMAGE" > .env
-            docker compose pull
-            docker compose up -d --remove-orphans
+            echo "Removing old container (if any)..."
+            docker stop $CONTAINER || true
+            docker rm $CONTAINER || true
+
+            echo "Starting new container..."
+            docker run -d \
+              --name $CONTAINER \
+              --restart unless-stopped \
+              --network caddy_net \
+              -e NODE_ENV=production \
+              $IMAGE
+
+            echo "Cleaning up old images..."
             docker image prune -f
 
-            echo "Deploy berhasil!"
-            docker compose ps
+            echo ""
+            echo "DEPLOYMENT SUCCESSFUL!"
+            echo "Container: $CONTAINER"
+            docker ps -f name=$CONTAINER
