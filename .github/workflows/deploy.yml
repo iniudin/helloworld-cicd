@@ -56,18 +56,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
-    env:
-      IMAGE_TO_DEPLOY: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ github.event.inputs.image_tag }}
-      CONTAINER: helloworld-cicd
-
     steps:
       - name: Check Image Tag Input
         run: |
-          echo "Deploying image: $IMAGE_TO_DEPLOY"
-          echo "Deploying container: $CONTAINER"
+          echo "Deploying image: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ github.event.inputs.image_tag }}"
+          echo "Deploying container: helloworld-cicd"
 
       - name: Deploy to VPS (Pure Docker Run – No Compose)
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TO_DEPLOY: ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-cicd:${{ github.event.inputs.image_tag }}
+          CONTAINER_NAME: helloworld-cicd
         with:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
@@ -78,21 +77,21 @@ jobs:
             docker pull $IMAGE_TO_DEPLOY
 
             echo "Removing old container (if any)..."
-            docker stop $CONTAINER || true
-            docker rm $CONTAINER || true
+            docker stop $CONTAINER_NAME || true
+            docker rm $CONTAINER_NAME || true
 
             echo "Starting new container..."
             docker run -d \
-              --name $CONTAINER \
+              --name $CONTAINER_NAME \
               --restart unless-stopped \
               --network caddy_net \
               -e NODE_ENV=production \
               $IMAGE_TO_DEPLOY
-              
+
             echo "Cleaning up old images..."
-            docker image prune -f 
+            docker image prune -f
 
             echo ""
             echo "✅ DEPLOYMENT SUCCESSFUL!"
-            echo "Container: $CONTAINER"
-            docker ps -f name=$CONTAINER
+            echo "Container: $CONTAINER_NAME"
+            docker ps -f name=$CONTAINER_NAME

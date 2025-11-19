@@ -1,18 +1,18 @@
-# Gunakan Bun resmi
+# Use Bun official image
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Install dependencies (dengan cache)
+# Install dependencies with cache
 FROM base AS deps
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# Production dependencies only
+# Install production dependencies only
 FROM base AS prod-deps
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-# Build aplikasi
+# Build production
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -23,7 +23,7 @@ RUN bun run build
 FROM oven/bun:1 AS release
 WORKDIR /app
 
-# Copy hanya yang dibutuhkan dari .output
+# Only copy .output folder
 COPY --from=builder /app/.output ./.output
 
 EXPOSE 3000
